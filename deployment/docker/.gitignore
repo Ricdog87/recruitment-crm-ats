@@ -2,6 +2,8 @@
 .env.production
 .env.local
 .env
+!.env.production.example
+!.env.example
 
 # Backup files
 backups/
