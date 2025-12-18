@@ -11,6 +11,7 @@ import { ActivitiesModule } from './modules/activities/activities.module';
 import { MatchingModule } from './modules/matching/matching.module';
 import { PlzModule } from './modules/plz/plz.module';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     MatchingModule,
     PlzModule,
   ],
+  controllers: [HealthController],
   providers: [
     {
       provide: APP_INTERCEPTOR,

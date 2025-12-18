@@ -1,0 +1,17 @@
+# Environment files (contains secrets)
+.env.production
+.env.local
+.env
+
+# Backup files
+backups/
+*.sql
+*.sql.gz
+*.sql.gz.sha256
+
+# Docker volumes
+postgres_data/
+
+# Logs
+logs/
+*.log
