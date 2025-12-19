@@ -33,13 +33,13 @@ export class AuditLogInterceptor implements NestInterceptor {
     const beforeData = method === 'PUT' || method === 'PATCH' ? request.body : null;
 
     return next.handle().pipe(
-      tap(async (data) => {
+      tap(async (data: any) => {
         try {
           const teamMembership = user.team_memberships?.[0];
           if (!teamMembership) return;
 
           const entityId =
-            data?.id || request.params?.id || data?.[0]?.id || 'unknown';
+            data?.id || request.params?.id || (Array.isArray(data) && data[0]?.id) || 'unknown';
           const action = this.getAction(method);
 
           await this.prisma.auditLog.create({
@@ -49,8 +49,8 @@ export class AuditLogInterceptor implements NestInterceptor {
               entity_type: entityType,
               entity_id: entityId,
               action,
-              before_json: beforeData,
-              after_json: data,
+              before_json: beforeData as any,
+              after_json: data as any,
             },
           });
         } catch (error) {
