@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
 import {
+  Injectable,
   NestInterceptor,
   ExecutionContext,
   CallHandler,
-} from '@nestjs/core';
+} from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { PrismaService } from '../../modules/prisma/prisma.service';
