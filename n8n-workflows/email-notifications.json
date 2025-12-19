@@ -1,0 +1,348 @@
+{
+  "name": "Email Notifications via Mailgun",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "crm-webhook",
+        "options": {}
+      },
+      "id": "e1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "crm-notification-webhook"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "event_type",
+              "value": "={{$json.body.event_type}}"
+            },
+            {
+              "name": "recipient_email",
+              "value": "={{$json.body.recipient_email}}"
+            },
+            {
+              "name": "data",
+              "value": "={{JSON.stringify($json.body.data)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Extract Webhook Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.event_type}}",
+                    "rightValue": "candidate_submitted",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "candidate_submitted"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.event_type}}",
+                    "rightValue": "interview_scheduled",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "interview_scheduled"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.event_type}}",
+                    "rightValue": "offer_sent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "offer_sent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.event_type}}",
+                    "rightValue": "candidate_hired",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "candidate_hired"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($json.data);\n\nconst emailBody = `\n<h2>🎯 Candidate Submitted to Project</h2>\n\n<p><b>Project:</b> ${data.project_title}</p>\n<p><b>Candidate:</b> ${data.candidate_name}</p>\n<p><b>Email:</b> ${data.candidate_email}</p>\n<p><b>Match Score:</b> ${data.match_score}/100</p>\n<p><b>Submitted by:</b> ${data.submitted_by}</p>\n<p><b>Date:</b> ${new Date().toLocaleDateString('de-DE')}</p>\n\n<hr>\n\n<p><b>Candidate Profile:</b></p>\n<ul>\n  <li>Seniority: ${data.seniority || 'N/A'}</li>\n  <li>Location: ${data.plz || 'N/A'}</li>\n  <li>Salary Expectation: ${data.salary_expectation ? '€' + data.salary_expectation.toLocaleString() : 'N/A'}</li>\n</ul>\n\n<p><a href=\"${process.env.CRM_API_URL}/api/submissions/${data.submission_id}\">View Submission in CRM</a></p>\n`;\n\nreturn [{\n  json: {\n    to: $json.recipient_email,\n    subject: `🎯 New Candidate Submitted: ${data.candidate_name} for ${data.project_title}`,\n    html: emailBody\n  }\n}];"
+      },
+      "id": "e1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Template: Candidate Submitted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($json.data);\n\nconst emailBody = `\n<h2>📅 Interview Scheduled</h2>\n\n<p><b>Project:</b> ${data.project_title}</p>\n<p><b>Candidate:</b> ${data.candidate_name}</p>\n<p><b>Interview Date:</b> ${new Date(data.interview_date).toLocaleString('de-DE')}</p>\n<p><b>Interview Type:</b> ${data.interview_type || 'Standard Interview'}</p>\n<p><b>Location/Link:</b> ${data.interview_location || data.interview_link || 'TBD'}</p>\n\n<hr>\n\n<p><b>Preparation Notes:</b></p>\n<p>${data.notes || 'No additional notes'}</p>\n\n<p><a href=\"${process.env.CRM_API_URL}/api/submissions/${data.submission_id}\">View Details in CRM</a></p>\n`;\n\nreturn [{\n  json: {\n    to: $json.recipient_email,\n    subject: `📅 Interview Scheduled: ${data.candidate_name} - ${new Date(data.interview_date).toLocaleDateString('de-DE')}`,\n    html: emailBody\n  }\n}];"
+      },
+      "id": "e1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Template: Interview Scheduled",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($json.data);\n\nconst emailBody = `\n<h2>💼 Job Offer Sent</h2>\n\n<p><b>Congratulations!</b> An offer has been sent to:</p>\n\n<p><b>Candidate:</b> ${data.candidate_name}</p>\n<p><b>Project:</b> ${data.project_title}</p>\n<p><b>Offer Details:</b></p>\n<ul>\n  <li>Salary: €${data.offer_salary ? data.offer_salary.toLocaleString() : 'Confidential'}</li>\n  <li>Start Date: ${data.start_date ? new Date(data.start_date).toLocaleDateString('de-DE') : 'TBD'}</li>\n  <li>Contract Type: ${data.contract_type || 'Permanent'}</li>\n</ul>\n\n<p><b>Next Steps:</b></p>\n<p>${data.next_steps || 'Awaiting candidate response'}</p>\n\n<p><a href=\"${process.env.CRM_API_URL}/api/submissions/${data.submission_id}\">Track Offer Status in CRM</a></p>\n`;\n\nreturn [{\n  json: {\n    to: $json.recipient_email,\n    subject: `💼 Offer Sent to ${data.candidate_name} for ${data.project_title}`,\n    html: emailBody\n  }\n}];"
+      },
+      "id": "e1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Template: Offer Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($json.data);\n\nconst emailBody = `\n<h2>🎉 Candidate Hired - Placement Success!</h2>\n\n<p><b>Excellent news!</b> We've successfully placed a candidate:</p>\n\n<p><b>Candidate:</b> ${data.candidate_name}</p>\n<p><b>Project:</b> ${data.project_title}</p>\n<p><b>Company:</b> ${data.company_name}</p>\n<p><b>Start Date:</b> ${data.start_date ? new Date(data.start_date).toLocaleDateString('de-DE') : 'TBD'}</p>\n<p><b>Placement Fee:</b> ${data.placement_fee ? '€' + data.placement_fee.toLocaleString() : 'TBD'}</p>\n\n<hr>\n\n<p><b>Recruitment Timeline:</b></p>\n<ul>\n  <li>Days to Hire: ${data.days_to_hire || 'N/A'}</li>\n  <li>Submissions: ${data.total_submissions || 'N/A'}</li>\n  <li>Interviews: ${data.total_interviews || 'N/A'}</li>\n</ul>\n\n<p><b>Congratulations to the team! 🎊</b></p>\n\n<p><a href=\"${process.env.CRM_API_URL}/api/submissions/${data.submission_id}\">View Placement Details in CRM</a></p>\n`;\n\nreturn [{\n  json: {\n    to: $json.recipient_email,\n    subject: `🎉 Placement Success: ${data.candidate_name} hired for ${data.project_title}`,\n    html: emailBody\n  }\n}];"
+      },
+      "id": "e1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Template: Candidate Hired",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 650]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.MAILGUN_FROM_EMAIL}}",
+        "toEmail": "={{$json.to}}",
+        "subject": "={{$json.subject}}",
+        "emailType": "html",
+        "message": "={{$json.html}}",
+        "options": {}
+      },
+      "id": "e1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Send Email via Mailgun",
+      "type": "n8n-nodes-base.mailgun",
+      "typeVersion": 1,
+      "position": [1120, 400],
+      "credentials": {
+        "mailgunApi": {
+          "id": "3",
+          "name": "Mailgun account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": true, \"message\": \"Email notification sent\", \"event\": \"{{$json.event_type}}\"}",
+        "options": {}
+      },
+      "id": "e1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Webhook Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Webhook Data": {
+      "main": [
+        [
+          {
+            "node": "Route by Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Event Type": {
+      "main": [
+        [
+          {
+            "node": "Template: Candidate Submitted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Template: Interview Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Template: Offer Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Template: Candidate Hired",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template: Candidate Submitted": {
+      "main": [
+        [
+          {
+            "node": "Send Email via Mailgun",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template: Interview Scheduled": {
+      "main": [
+        [
+          {
+            "node": "Send Email via Mailgun",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template: Offer Sent": {
+      "main": [
+        [
+          {
+            "node": "Send Email via Mailgun",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template: Candidate Hired": {
+      "main": [
+        [
+          {
+            "node": "Send Email via Mailgun",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email via Mailgun": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "CRM",
+      "id": "crm-notifications"
+    },
+    {
+      "name": "Mailgun",
+      "id": "email"
+    }
+  ],
+  "meta": {
+    "instanceId": "crm-recruiting-ats"
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+}

@@ -1,0 +1,338 @@
+{
+  "name": "Auto-Matching Engine (Every 6 Hours)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "d1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Every 6 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "crm_access_token"
+      },
+      "id": "d1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Get CRM Token",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [460, 400],
+      "credentials": {
+        "redis": {
+          "id": "1",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/projects",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "team_id",
+              "value": "={{$env.CRM_TEAM_ID}}"
+            }
+          ]
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('Get CRM Token').first().json}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Get Active Projects",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.status}}",
+              "value2": "ACTIVE",
+              "operation": "equals"
+            }
+          ]
+        }
+      },
+      "id": "d1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Filter: Only Active",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/projects/{{$json.id}}/matches",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "team_id",
+              "value": "={{$env.CRM_TEAM_ID}}"
+            },
+            {
+              "name": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('Get CRM Token').first().json}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Run Matching Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.score}}",
+              "value2": 70,
+              "operation": "largerEqual"
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{$json.hard_filters_passed}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "d1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Filter: High Score Matches",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const matches = $input.all();\nconst projectId = $input.first().json.project_id || 'unknown';\nconst projectTitle = $input.first().json.project_title || 'Unknown Project';\n\nconst topMatches = matches.map(m => m.json).slice(0, 5);\n\nconst emailBody = `\n🎯 <b>Auto-Matching Alert: Top Candidates Found!</b><br><br>\n\n<b>Project:</b> ${projectTitle}<br>\n<b>Matches Found:</b> ${matches.length}<br>\n<b>Top 5 Candidates:</b><br><br>\n\n${topMatches.map((m, i) => `\n  ${i + 1}. <b>${m.candidate_name}</b> (${m.candidate_email})<br>\n     • Score: ${m.score}/100<br>\n     • Distance: ${m.distance_km ? m.distance_km + ' km' : 'Remote'}<br>\n     • Reason: ${m.short_reason}<br>\n     • Hard Filters: ${m.hard_filters_passed ? '✅ Passed' : '❌ Failed'}<br><br>\n`).join('')}\n\n<a href=\"${process.env.CRM_API_URL}/api/projects/${projectId}\">View Project in CRM</a>\n`;\n\nreturn [{\n  json: {\n    to: process.env.NOTIFICATION_EMAIL,\n    subject: `🎯 ${matches.length} Top Candidates Found for: ${projectTitle}`,\n    html: emailBody,\n    project_id: projectId,\n    project_title: projectTitle,\n    match_count: matches.length\n  }\n}];"
+      },
+      "id": "d1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Prepare Email Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.MAILGUN_FROM_EMAIL}}",
+        "toEmail": "={{$json.to}}",
+        "subject": "={{$json.subject}}",
+        "emailType": "html",
+        "message": "={{$json.html}}",
+        "options": {}
+      },
+      "id": "d1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Send via Mailgun",
+      "type": "n8n-nodes-base.mailgun",
+      "typeVersion": 1,
+      "position": [1780, 200],
+      "credentials": {
+        "mailgunApi": {
+          "id": "3",
+          "name": "Mailgun account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allMatches = $input.all();\nconst projectGroups = {};\n\nallMatches.forEach(item => {\n  const projectId = item.json.project_id || 'unknown';\n  if (!projectGroups[projectId]) {\n    projectGroups[projectId] = {\n      project_id: projectId,\n      project_title: item.json.project_title || 'Unknown',\n      total_matches: 0,\n      high_score_matches: 0,\n      avg_score: 0,\n      scores: []\n    };\n  }\n  \n  projectGroups[projectId].total_matches++;\n  if (item.json.score >= 70) {\n    projectGroups[projectId].high_score_matches++;\n  }\n  projectGroups[projectId].scores.push(item.json.score);\n});\n\nObject.keys(projectGroups).forEach(projectId => {\n  const group = projectGroups[projectId];\n  const avgScore = group.scores.reduce((a, b) => a + b, 0) / group.scores.length;\n  group.avg_score = avgScore.toFixed(1);\n  delete group.scores;\n});\n\nreturn Object.values(projectGroups).map(g => ({json: g}));"
+      },
+      "id": "d1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GOOGLE_SHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "MatchingLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{new Date().toISOString()}}",
+            "Project ID": "={{$json.project_id}}",
+            "Project": "={{$json.project_title}}",
+            "Total Matches": "={{$json.total_matches}}",
+            "High Score (70+)": "={{$json.high_score_matches}}",
+            "Avg Score": "={{$json.avg_score}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "d1b2c3d4-0010-0010-0010-000000000010",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1780, 400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6 hours": {
+      "main": [
+        [
+          {
+            "node": "Get CRM Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CRM Token": {
+      "main": [
+        [
+          {
+            "node": "Get Active Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Projects": {
+      "main": [
+        [
+          {
+            "node": "Filter: Only Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Only Active": {
+      "main": [
+        [
+          {
+            "node": "Run Matching Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Matching Engine": {
+      "main": [
+        [
+          {
+            "node": "Filter: High Score Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: High Score Matches": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Notification": {
+      "main": [
+        [
+          {
+            "node": "Send via Mailgun",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "CRM",
+      "id": "crm-matching"
+    },
+    {
+      "name": "Automation",
+      "id": "auto-match"
+    }
+  ],
+  "meta": {
+    "instanceId": "crm-recruiting-ats"
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+}
