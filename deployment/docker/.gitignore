@@ -4,6 +4,7 @@
 .env
 !.env.production.example
 !.env.example
+!.env.recruiting-sg.example
 
 # Backup files
 backups/

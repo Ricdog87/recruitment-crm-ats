@@ -2,47 +2,76 @@
 
 This directory contains all production deployment configurations and scripts for the CRM/ATS system.
 
+## 🌐 Deployment Options
+
+### Option 1: Traefik Integration (recruiting-sg.com) ⭐ **RECOMMENDED**
+
+For VPS with existing Traefik (automatic SSL, routing):
+- **Domain**: recruiting-sg.com
+- **VPS**: 72.60.80.120
+- **Guide**: [DEPLOYMENT_TRAEFIK.md](DEPLOYMENT_TRAEFIK.md)
+- **Quick Start**: [QUICK_DEPLOY.md](QUICK_DEPLOY.md)
+- **Script**: `scripts/deploy-traefik.sh`
+
+### Option 2: Nginx + Let's Encrypt (Standalone)
+
+For fresh VPS without Traefik:
+- **Domain**: Custom domain
+- **Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
+- **Quick Start**: [QUICK_START.md](QUICK_START.md)
+- **Script**: `scripts/deploy.sh`
+
 ## 📁 Directory Structure
 
 ```
 deployment/
 ├── docker/
-│   ├── docker-compose.production.yml  # Production Docker Compose
-│   ├── Dockerfile                      # Production-optimized Dockerfile
-│   ├── .env.production.example         # Environment template
-│   └── .dockerignore                   # Docker build exclusions
+│   ├── docker-compose.traefik.yml       # Traefik integration (recruiting-sg.com)
+│   ├── docker-compose.production.yml    # Standalone with Nginx
+│   ├── Dockerfile                        # Production-optimized Dockerfile
+│   ├── .env.recruiting-sg.example        # Environment for recruiting-sg.com
+│   ├── .env.production.example           # Environment for Nginx setup
+│   └── .dockerignore                     # Docker build exclusions
 ├── nginx/
-│   └── crm.rsg-recruiting.de.conf      # Nginx reverse proxy config
+│   └── crm.rsg-recruiting.de.conf        # Nginx reverse proxy config (Nginx setup)
 ├── scripts/
-│   ├── deploy.sh                       # Automated deployment
-│   ├── update.sh                       # Application updates
-│   ├── backup.sh                       # Database backups
-│   └── monitor.sh                      # System monitoring
-├── DEPLOYMENT.md                        # Full deployment guide
-├── QUICK_START.md                       # Quick deployment guide
-└── README.md                            # This file
+│   ├── deploy-traefik.sh                 # Automated Traefik deployment ⭐
+│   ├── deploy.sh                         # Automated Nginx deployment
+│   ├── update.sh                         # Application updates
+│   ├── backup.sh                         # Database backups
+│   └── monitor.sh                        # System monitoring
+├── DEPLOYMENT_TRAEFIK.md                 # Full Traefik deployment guide ⭐
+├── QUICK_DEPLOY.md                       # 10-min Traefik deployment ⭐
+├── DEPLOYMENT.md                         # Full Nginx deployment guide
+├── QUICK_START.md                        # 10-min Nginx deployment
+└── README.md                             # This file
 ```
 
 ## 🚀 Quick Deployment
 
-**For first-time deployment:**
+### For recruiting-sg.com (Traefik) ⭐
 
 ```bash
-# Run automated deployment
-sudo ./scripts/deploy.sh
+# One-command deployment
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ricdog87/recruitment-crm-ats/claude/crm-recruiting-backend-kRGn2/deployment/scripts/deploy-traefik.sh)"
 ```
 
-**For updates:**
+### For Standalone (Nginx)
 
 ```bash
-# Run update script
-sudo ./scripts/update.sh
+# Clone and run deployment script
+sudo ./scripts/deploy.sh
 ```
 
 ## 📚 Documentation
 
-- **[QUICK_START.md](QUICK_START.md)** - 10-minute deployment guide
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete deployment documentation with troubleshooting
+### Traefik Deployment (recruiting-sg.com) ⭐
+- **[QUICK_DEPLOY.md](QUICK_DEPLOY.md)** - 10-minute Traefik deployment
+- **[DEPLOYMENT_TRAEFIK.md](DEPLOYMENT_TRAEFIK.md)** - Complete Traefik guide with troubleshooting
+
+### Nginx Deployment (Standalone)
+- **[QUICK_START.md](QUICK_START.md)** - 10-minute Nginx deployment
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete Nginx guide with troubleshooting
 
 ## 🔧 Scripts
 
