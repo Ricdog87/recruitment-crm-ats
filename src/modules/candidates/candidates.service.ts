@@ -1,14 +1,20 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import { CVParsingService } from '../cv-parsing/cv-parsing.service';
 import { CreateCandidateDto } from './dto/create-candidate.dto';
 import { UpdateCandidateDto } from './dto/update-candidate.dto';
 import { ParseCvDto } from './dto/parse-cv.dto';
-import { ParsingStatus, Seniority } from '@prisma/client';
+import { ParsingStatus, Seniority, WorkflowTriggerType } from '@prisma/client';
 import { parse } from 'csv-parse/sync';
 
 @Injectable()
 export class CandidatesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cvParsingService: CVParsingService,
+    private eventEmitter: EventEmitter2,
+  ) {}
 
   async create(dto: CreateCandidateDto) {
     const existing = await this.prisma.candidate.findUnique({
@@ -24,12 +30,22 @@ export class CandidatesService {
       throw new ConflictException('Candidate with this email already exists in this team');
     }
 
-    return this.prisma.candidate.create({
+    const candidate = await this.prisma.candidate.create({
       data: {
         ...dto,
         availability_date: dto.availability_date ? new Date(dto.availability_date) : null,
       },
     });
+
+    // Emit event for workflow automation
+    this.eventEmitter.emit('candidate.created', {
+      type: WorkflowTriggerType.CANDIDATE_CREATED,
+      teamId: candidate.team_id,
+      data: candidate,
+      metadata: { candidateId: candidate.id },
+    });
+
+    return candidate;
   }
 
   async findAll(teamId: string) {
@@ -93,65 +109,17 @@ export class CandidatesService {
     });
   }
 
+  /**
+   * Parse CV text and extract candidate data using AI
+   */
   async parseCV(id: string, dto: ParseCvDto, teamId: string) {
-    const candidate = await this.findOne(id, teamId);
+    await this.findOne(id, teamId); // Validate access
 
-    await this.prisma.candidate.update({
-      where: { id },
-      data: { cv_parsing_status: ParsingStatus.IN_PROGRESS },
-    });
+    // Use the CV parsing service (with OpenAI integration)
+    await this.cvParsingService.parseCVForCandidate(id, dto.cv_text, teamId);
 
-    const extractedData = this.extractDataFromCV(dto.cv_text);
-
-    return this.prisma.candidate.update({
-      where: { id },
-      data: {
-        skills: extractedData.skills.length > 0 ? extractedData.skills : candidate.skills,
-        seniority: extractedData.seniority || candidate.seniority,
-        languages: extractedData.languages.length > 0 ? extractedData.languages : candidate.languages,
-        cv_parsing_status: ParsingStatus.COMPLETED,
-      },
-    });
-  }
-
-  private extractDataFromCV(cvText: string): {
-    skills: string[];
-    seniority: Seniority | null;
-    languages: string[];
-  } {
-    const text = cvText.toLowerCase();
-    const skills: string[] = [];
-    const languages: string[] = [];
-    let seniority: Seniority | null = null;
-
-    const skillKeywords = [
-      'javascript', 'typescript', 'python', 'java', 'node.js', 'react', 'vue',
-      'angular', 'nestjs', 'express', 'docker', 'kubernetes', 'aws', 'postgresql',
-      'mongodb', 'redis', 'graphql', 'rest api', 'microservices', 'ci/cd', 'git',
-    ];
-
-    skillKeywords.forEach((skill) => {
-      if (text.includes(skill)) {
-        skills.push(skill.charAt(0).toUpperCase() + skill.slice(1));
-      }
-    });
-
-    const languageKeywords = ['deutsch', 'englisch', 'french', 'spanish', 'italian'];
-    languageKeywords.forEach((lang) => {
-      if (text.includes(lang)) {
-        languages.push(lang.charAt(0).toUpperCase() + lang.slice(1));
-      }
-    });
-
-    if (text.includes('senior') || text.includes('lead')) {
-      seniority = Seniority.SENIOR;
-    } else if (text.includes('mid-level') || text.includes('intermediate')) {
-      seniority = Seniority.MID;
-    } else if (text.includes('junior') || text.includes('entry')) {
-      seniority = Seniority.JUNIOR;
-    }
-
-    return { skills, seniority, languages };
+    // Return updated candidate
+    return this.findOne(id, teamId);
   }
 
   async importFromCSV(csvContent: string, teamId: string) {

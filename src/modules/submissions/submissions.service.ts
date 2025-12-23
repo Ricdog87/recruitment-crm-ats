@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { UpdateSubmissionDto } from './dto/update-submission.dto';
+import { WorkflowTriggerType } from '@prisma/client';
 
 @Injectable()
 export class SubmissionsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private eventEmitter: EventEmitter2,
+  ) {}
 
   async create(dto: CreateSubmissionDto) {
     const existing = await this.prisma.submission.findUnique({
@@ -69,9 +74,9 @@ export class SubmissionsService {
   }
 
   async update(id: string, dto: UpdateSubmissionDto, teamId: string) {
-    await this.findOne(id, teamId);
+    const oldSubmission = await this.findOne(id, teamId);
 
-    return this.prisma.submission.update({
+    const updatedSubmission = await this.prisma.submission.update({
       where: { id },
       data: {
         ...dto,
@@ -82,6 +87,26 @@ export class SubmissionsService {
         project: true,
       },
     });
+
+    // Emit event if status changed (for workflow automation)
+    if (dto.status && dto.status !== oldSubmission.status) {
+      this.eventEmitter.emit('submission.status.changed', {
+        type: WorkflowTriggerType.SUBMISSION_STATUS_CHANGED,
+        teamId: updatedSubmission.team_id,
+        data: {
+          submission: updatedSubmission,
+          oldStatus: oldSubmission.status,
+          newStatus: dto.status,
+        },
+        metadata: {
+          submissionId: updatedSubmission.id,
+          candidateId: updatedSubmission.candidate_id,
+          projectId: updatedSubmission.project_id,
+        },
+      });
+    }
+
+    return updatedSubmission;
   }
 
   async remove(id: string, teamId: string) {

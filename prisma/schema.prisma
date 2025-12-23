@@ -109,6 +109,8 @@ model Team {
   activities   Activity[]
   documents    Document[]
   audit_logs   AuditLog[]
+  workflows    Workflow[]
+  workflow_logs WorkflowLog[]
 
   @@map("teams")
 }
@@ -342,4 +344,59 @@ model PlzGeodata {
   longitude Decimal @db.Decimal(11, 8)
 
   @@map("plz_geodata")
+}
+
+// ============================================================================
+// WORKFLOW AUTOMATION
+// ============================================================================
+
+enum WorkflowTriggerType {
+  SUBMISSION_STATUS_CHANGED
+  CANDIDATE_CREATED
+  PROJECT_STATUS_CHANGED
+  DOCUMENT_UPLOADED
+}
+
+enum WorkflowActionType {
+  SEND_EMAIL
+  CREATE_ACTIVITY
+  UPDATE_FIELD
+  WEBHOOK
+}
+
+model Workflow {
+  id          String   @id @default(cuid())
+  team_id     String
+  name        String
+  description String?
+  is_active   Boolean  @default(true)
+  trigger_type WorkflowTriggerType
+  trigger_config Json?   // Conditions for when to trigger
+  actions     Json      // Array of actions to perform
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  logs WorkflowLog[]
+
+  @@index([team_id])
+  @@index([trigger_type])
+  @@map("workflows")
+}
+
+model WorkflowLog {
+  id          String   @id @default(cuid())
+  workflow_id String
+  team_id     String
+  triggered_by String  // Event that triggered the workflow
+  success     Boolean
+  error_message String?
+  executed_at DateTime @default(now())
+
+  workflow Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+  team     Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
+
+  @@index([workflow_id])
+  @@index([team_id])
+  @@map("workflow_logs")
 }
