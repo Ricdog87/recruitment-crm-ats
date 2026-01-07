@@ -1,0 +1,20 @@
+# Environment files (contains secrets)
+.env.production
+.env.local
+.env
+!.env.production.example
+!.env.example
+!.env.recruiting-sg.example
+
+# Backup files
+backups/
+*.sql
+*.sql.gz
+*.sql.gz.sha256
+
+# Docker volumes
+postgres_data/
+
+# Logs
+logs/
+*.log

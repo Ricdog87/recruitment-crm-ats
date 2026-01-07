@@ -1,0 +1,159 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crm-ats-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - crm-internal
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: crm-ats-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - crm-internal
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+      args:
+        NODE_ENV: production
+    container_name: crm-ats-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
+      PORT: 3000
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    networks:
+      - crm-internal
+      - root_traefik
+    labels:
+      # Enable Traefik for this service
+      - "traefik.enable=true"
+
+      # HTTP Router - Redirect to HTTPS
+      - "traefik.http.routers.crm-backend-http.rule=Host(`recruiting-sg.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.crm-backend-http.entrypoints=web"
+      - "traefik.http.routers.crm-backend-http.middlewares=redirect-to-https@docker"
+
+      # HTTPS Router
+      - "traefik.http.routers.crm-backend.rule=Host(`recruiting-sg.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.crm-backend.entrypoints=websecure"
+      - "traefik.http.routers.crm-backend.tls=true"
+      - "traefik.http.routers.crm-backend.tls.certresolver=letsencrypt"
+
+      # Service configuration
+      - "traefik.http.services.crm-backend.loadbalancer.server.port=3000"
+
+      # Security headers middleware
+      - "traefik.http.middlewares.crm-security-headers.headers.customResponseHeaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.crm-security-headers.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.crm-security-headers.headers.customResponseHeaders.X-XSS-Protection=1; mode=block"
+      - "traefik.http.middlewares.crm-security-headers.headers.customResponseHeaders.Referrer-Policy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.crm-security-headers.headers.stsSeconds=63072000"
+      - "traefik.http.middlewares.crm-security-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.crm-security-headers.headers.stsPreload=true"
+
+      # Rate limiting middleware (100 requests/minute)
+      - "traefik.http.middlewares.crm-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.crm-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.crm-ratelimit.ratelimit.period=1m"
+
+      # Apply middlewares
+      - "traefik.http.routers.crm-backend.middlewares=crm-security-headers@docker,crm-ratelimit@docker"
+
+      # Network for Traefik
+      - "traefik.docker.network=root_traefik"
+
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  crm-internal:
+    driver: bridge
+    name: crm-ats-internal
+
+  root_traefik:
+    external: true
+
+volumes:
+  postgres_data:
+    driver: local
+    name: crm-ats-postgres-data
+  redis_data:
+    driver: local
+    name: crm-ats-redis-data

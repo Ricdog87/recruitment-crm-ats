@@ -1,0 +1,397 @@
+{
+  "name": "HubSpot to CRM Migration",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "g1b2c3d4-0001-0001-0001-000000000001",
+      "name": "When clicking 'Test workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "crm_access_token"
+      },
+      "id": "g1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Get CRM Token",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [460, 400],
+      "credentials": {
+        "redis": {
+          "id": "1",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "contact",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "formattedOutput": true,
+          "propertiesCollection": {
+            "properties": [
+              "email",
+              "firstname",
+              "lastname",
+              "phone",
+              "mobilephone",
+              "jobtitle",
+              "company",
+              "city",
+              "zip",
+              "notes_last_updated",
+              "hs_lead_status",
+              "createdate",
+              "lastmodifieddate"
+            ]
+          }
+        }
+      },
+      "id": "g1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Get All HubSpot Contacts",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [680, 400],
+      "credentials": {
+        "hubspotApi": {
+          "id": "4",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const contacts = $input.all();\nconst token = $('Get CRM Token').first().json;\n\nconst transformedContacts = contacts.map(item => {\n  const c = item.json;\n  \n  return {\n    // Contact data\n    team_id: $env.CRM_TEAM_ID,\n    first_name: c.firstname || 'Unknown',\n    last_name: c.lastname || 'Unknown',\n    email: c.email,\n    phone: c.phone || c.mobilephone || null,\n    position: c.jobtitle || null,\n    notes: `Migrated from HubSpot on ${new Date().toISOString()}\\n` +\n           `Original Lead Status: ${c.hs_lead_status || 'N/A'}\\n` +\n           `Created in HubSpot: ${c.createdate ? new Date(c.createdate).toLocaleDateString() : 'N/A'}`,\n    \n    // Company data (for potential company creation)\n    company_name: c.company || null,\n    city: c.city || null,\n    plz: c.zip || null,\n    \n    // Metadata\n    hubspot_id: c.id || c.vid,\n    hubspot_created_date: c.createdate,\n    hubspot_modified_date: c.lastmodifieddate,\n    \n    // Token for API calls\n    token: token\n  };\n});\n\nreturn transformedContacts.map(c => ({json: c}));"
+      },
+      "id": "g1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Transform HubSpot to CRM Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.email}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json.email}}",
+              "operation": "regex",
+              "value2": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+            }
+          ]
+        }
+      },
+      "id": "g1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Filter: Valid Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/contacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"team_id\": \"{{$json.team_id}}\", \"first_name\": \"{{$json.first_name}}\", \"last_name\": \"{{$json.last_name}}\", \"email\": \"{{$json.email}}\", \"phone\": \"{{$json.phone}}\", \"position\": \"{{$json.position}}\", \"notes\": \"{{$json.notes}}\"}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 20,
+              "batchInterval": 1000
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            }
+          ]
+        }
+      },
+      "id": "g1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Create Contact in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.company_name}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "g1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Check: Has Company",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 500]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/companies",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"team_id\": \"{{$json.team_id}}\", \"name\": \"{{$json.company_name}}\", \"description\": \"Migrated from HubSpot on {{new Date().toISOString()}}\"}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 2000
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            }
+          ]
+        }
+      },
+      "id": "g1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Create Company in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all();\n\nconst successful = results.filter(r => \n  r.json.statusCode === 201 || r.json.statusCode === 200\n).length;\n\nconst failed = results.filter(r => \n  r.json.statusCode !== 201 && r.json.statusCode !== 200\n).length;\n\nconst duplicates = results.filter(r => \n  r.json.statusCode === 409\n).length;\n\nconst total = results.length;\n\nconst summary = {\n  timestamp: new Date().toISOString(),\n  migration_type: 'HubSpot Contacts to CRM',\n  total_processed: total,\n  successfully_migrated: successful,\n  failed: failed,\n  duplicates_skipped: duplicates,\n  success_rate: total > 0 ? ((successful / total) * 100).toFixed(2) + '%' : '0%',\n  duration_minutes: Math.round((Date.now() - $input.first().json.start_time) / 1000 / 60) || 'N/A'\n};\n\nreturn [{json: summary}];"
+      },
+      "id": "g1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Generate Migration Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GOOGLE_SHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "MigrationLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{$json.timestamp}}",
+            "Type": "={{$json.migration_type}}",
+            "Total": "={{$json.total_processed}}",
+            "Migrated": "={{$json.successfully_migrated}}",
+            "Failed": "={{$json.failed}}",
+            "Duplicates": "={{$json.duplicates_skipped}}",
+            "Success Rate": "={{$json.success_rate}}",
+            "Duration (min)": "={{$json.duration_minutes}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "g1b2c3d4-0010-0010-0010-000000000010",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2000, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.MAILGUN_FROM_EMAIL}}",
+        "toEmail": "={{$env.NOTIFICATION_EMAIL}}",
+        "subject": "✅ HubSpot Migration Complete",
+        "emailType": "html",
+        "message": "=<h2>✅ HubSpot to CRM Migration Complete</h2>\n\n<p><b>Migration Summary:</b></p>\n<ul>\n  <li>Total Processed: {{$json.total_processed}}</li>\n  <li>Successfully Migrated: {{$json.successfully_migrated}}</li>\n  <li>Failed: {{$json.failed}}</li>\n  <li>Duplicates Skipped: {{$json.duplicates_skipped}}</li>\n  <li>Success Rate: {{$json.success_rate}}</li>\n  <li>Duration: {{$json.duration_minutes}} minutes</li>\n</ul>\n\n<p><a href=\"https://docs.google.com/spreadsheets/d/{{$env.GOOGLE_SHEET_ID}}\">View Full Migration Log</a></p>",
+        "options": {}
+      },
+      "id": "g1b2c3d4-0011-0011-0011-000000000011",
+      "name": "Send Completion Email",
+      "type": "n8n-nodes-base.mailgun",
+      "typeVersion": 1,
+      "position": [2220, 300],
+      "credentials": {
+        "mailgunApi": {
+          "id": "3",
+          "name": "Mailgun account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "message": "=⏭️ Skipped: Invalid or missing email - {{$json.first_name}} {{$json.last_name}}"
+      },
+      "id": "g1b2c3d4-0012-0012-0012-000000000012",
+      "name": "Skip Invalid",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1340, 600]
+    }
+  ],
+  "connections": {
+    "When clicking 'Test workflow'": {
+      "main": [
+        [
+          {
+            "node": "Get CRM Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CRM Token": {
+      "main": [
+        [
+          {
+            "node": "Get All HubSpot Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All HubSpot Contacts": {
+      "main": [
+        [
+          {
+            "node": "Transform HubSpot to CRM Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform HubSpot to CRM Format": {
+      "main": [
+        [
+          {
+            "node": "Filter: Valid Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Valid Email": {
+      "main": [
+        [
+          {
+            "node": "Create Contact in CRM",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check: Has Company",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Contact in CRM": {
+      "main": [
+        [
+          {
+            "node": "Generate Migration Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: Has Company": {
+      "main": [
+        [
+          {
+            "node": "Create Company in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Migration Report": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send Completion Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "CRM",
+      "id": "crm-migration"
+    },
+    {
+      "name": "HubSpot",
+      "id": "hubspot"
+    }
+  ],
+  "meta": {
+    "instanceId": "crm-recruiting-ats"
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+}

@@ -1,0 +1,392 @@
+{
+  "name": "KPI Dashboard Sync to Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Daily at 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "crm_access_token"
+      },
+      "id": "f1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Get CRM Token",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [460, 400],
+      "credentials": {
+        "redis": {
+          "id": "1",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/projects",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "team_id",
+              "value": "={{$env.CRM_TEAM_ID}}"
+            }
+          ]
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('Get CRM Token').first().json}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Get Projects",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/candidates",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "team_id",
+              "value": "={{$env.CRM_TEAM_ID}}"
+            }
+          ]
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('Get CRM Token').first().json}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Get Candidates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 450]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/submissions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "team_id",
+              "value": "={{$env.CRM_TEAM_ID}}"
+            }
+          ]
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('Get CRM Token').first().json}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Get Submissions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 600]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "f1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Merge All Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const projects = $input.first().json || [];\nconst candidates = $input.item(1).json || [];\nconst submissions = $input.item(2).json || [];\n\nconst now = new Date();\nconst startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);\nconst startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));\n\n// Overall KPIs\nconst totalProjects = projects.length;\nconst activeProjects = projects.filter(p => p.status === 'ACTIVE').length;\nconst filledProjects = projects.filter(p => p.status === 'FILLED').length;\n\nconst totalCandidates = candidates.length;\nconst newCandidatesThisMonth = candidates.filter(c => new Date(c.created_at) >= startOfMonth).length;\nconst newCandidatesThisWeek = candidates.filter(c => new Date(c.created_at) >= startOfWeek).length;\n\n// Submission KPIs\nconst totalSubmissions = submissions.length;\nconst submissionsThisMonth = submissions.filter(s => new Date(s.created_at) >= startOfMonth).length;\nconst submissionsThisWeek = submissions.filter(s => new Date(s.created_at) >= startOfWeek).length;\n\n// Status breakdown\nconst statusCounts = submissions.reduce((acc, s) => {\n  acc[s.status] = (acc[s.status] || 0) + 1;\n  return acc;\n}, {});\n\n// Conversion metrics\nconst interviewStage = submissions.filter(s => s.status === 'INTERVIEW').length;\nconst offerStage = submissions.filter(s => s.status === 'OFFER').length;\nconst hiredCount = submissions.filter(s => s.status === 'HIRED').length;\nconst rejectedCount = submissions.filter(s => s.status === 'REJECTED').length;\n\n// Time-to-hire calculation (for hired candidates)\nconst hiredSubmissions = submissions.filter(s => s.status === 'HIRED');\nconst avgTimeToHire = hiredSubmissions.length > 0 \n  ? hiredSubmissions.reduce((acc, s) => {\n      const days = Math.floor((new Date(s.updated_at) - new Date(s.created_at)) / (1000 * 60 * 60 * 24));\n      return acc + days;\n    }, 0) / hiredSubmissions.length\n  : 0;\n\n// Conversion rates\nconst submissionToInterviewRate = totalSubmissions > 0 ? ((interviewStage / totalSubmissions) * 100).toFixed(1) : '0.0';\nconst interviewToOfferRate = interviewStage > 0 ? ((offerStage / interviewStage) * 100).toFixed(1) : '0.0';\nconst offerToHireRate = offerStage > 0 ? ((hiredCount / offerStage) * 100).toFixed(1) : '0.0';\nconst overallHireRate = totalSubmissions > 0 ? ((hiredCount / totalSubmissions) * 100).toFixed(1) : '0.0';\n\n// Fill rate\nconst fillRate = totalProjects > 0 ? ((filledProjects / totalProjects) * 100).toFixed(1) : '0.0';\n\nreturn [{\n  json: {\n    date: new Date().toISOString().split('T')[0],\n    timestamp: new Date().toISOString(),\n    \n    // Project KPIs\n    total_projects: totalProjects,\n    active_projects: activeProjects,\n    filled_projects: filledProjects,\n    fill_rate: fillRate + '%',\n    \n    // Candidate KPIs\n    total_candidates: totalCandidates,\n    new_candidates_month: newCandidatesThisMonth,\n    new_candidates_week: newCandidatesThisWeek,\n    \n    // Submission KPIs\n    total_submissions: totalSubmissions,\n    submissions_month: submissionsThisMonth,\n    submissions_week: submissionsThisWeek,\n    \n    // Pipeline Status\n    identified: statusCounts.IDENTIFIED || 0,\n    qualified: statusCounts.QUALIFIED || 0,\n    submitted: statusCounts.SUBMITTED || 0,\n    interview: interviewStage,\n    offer: offerStage,\n    hired: hiredCount,\n    rejected: rejectedCount,\n    \n    // Conversion Metrics\n    submission_to_interview: submissionToInterviewRate + '%',\n    interview_to_offer: interviewToOfferRate + '%',\n    offer_to_hire: offerToHireRate + '%',\n    overall_hire_rate: overallHireRate + '%',\n    \n    // Time Metrics\n    avg_time_to_hire_days: Math.round(avgTimeToHire),\n    \n    // Health Score (simple calculation)\n    health_score: Math.min(100, Math.round(\n      (activeProjects * 2) + \n      (newCandidatesThisWeek * 1.5) + \n      (submissionsThisWeek * 3) + \n      (parseFloat(overallHireRate) * 2)\n    ))\n  }\n}];"
+      },
+      "id": "f1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Calculate KPIs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GOOGLE_SHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "KPI_Dashboard",
+          "mode": "name"
+        },
+        "range": "A2:Z2",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        }
+      },
+      "id": "f1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Update Current KPIs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GOOGLE_SHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Historical_Data",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{$json.date}}",
+            "Total Projects": "={{$json.total_projects}}",
+            "Active Projects": "={{$json.active_projects}}",
+            "Total Candidates": "={{$json.total_candidates}}",
+            "New Candidates (Month)": "={{$json.new_candidates_month}}",
+            "Total Submissions": "={{$json.total_submissions}}",
+            "Hired": "={{$json.hired}}",
+            "Fill Rate": "={{$json.fill_rate}}",
+            "Overall Hire Rate": "={{$json.overall_hire_rate}}",
+            "Avg Time to Hire": "={{$json.avg_time_to_hire_days}}",
+            "Health Score": "={{$json.health_score}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "f1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Append to Historical Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.health_score}}",
+              "value2": 50,
+              "operation": "smaller"
+            }
+          ]
+        }
+      },
+      "id": "f1b2c3d4-0010-0010-0010-000000000010",
+      "name": "Check: Low Health Score",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.MAILGUN_FROM_EMAIL}}",
+        "toEmail": "={{$env.NOTIFICATION_EMAIL}}",
+        "subject": "⚠️ CRM Health Score Alert",
+        "emailType": "html",
+        "message": "=<h2>⚠️ Low CRM Health Score Alert</h2>\n\n<p>The CRM health score has dropped below 50:</p>\n\n<p><b>Current Score:</b> {{$json.health_score}}/100</p>\n\n<p><b>Key Metrics:</b></p>\n<ul>\n  <li>Active Projects: {{$json.active_projects}}</li>\n  <li>New Candidates (Week): {{$json.new_candidates_week}}</li>\n  <li>Submissions (Week): {{$json.submissions_week}}</li>\n  <li>Overall Hire Rate: {{$json.overall_hire_rate}}</li>\n</ul>\n\n<p><b>Action Recommended:</b> Review pipeline and increase recruiting activities.</p>\n\n<p><a href=\"https://docs.google.com/spreadsheets/d/{{$env.GOOGLE_SHEET_ID}}\">View Full Dashboard</a></p>",
+        "options": {}
+      },
+      "id": "f1b2c3d4-0011-0011-0011-000000000011",
+      "name": "Send Alert Email",
+      "type": "n8n-nodes-base.mailgun",
+      "typeVersion": 1,
+      "position": [1780, 300],
+      "credentials": {
+        "mailgunApi": {
+          "id": "3",
+          "name": "Mailgun account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily at 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Get CRM Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CRM Token": {
+      "main": [
+        [
+          {
+            "node": "Get Projects",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Candidates",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Projects": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Candidates": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Submissions": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge All Data": {
+      "main": [
+        [
+          {
+            "node": "Calculate KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate KPIs": {
+      "main": [
+        [
+          {
+            "node": "Update Current KPIs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append to Historical Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check: Low Health Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: Low Health Score": {
+      "main": [
+        [
+          {
+            "node": "Send Alert Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "CRM",
+      "id": "crm-kpi"
+    },
+    {
+      "name": "Google Sheets",
+      "id": "dashboard"
+    }
+  ],
+  "meta": {
+    "instanceId": "crm-recruiting-ats"
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+}

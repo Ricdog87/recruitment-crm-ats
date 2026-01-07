@@ -1,0 +1,311 @@
+{
+  "name": "Candidate Import from Index Platform",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "b1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Every 2 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.INDEX_API_URL}}/api/candidates/export",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "indexApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "updated_since",
+              "value": "={{$now.minus({hours: 2}).toISO()}}"
+            },
+            {
+              "name": "status",
+              "value": "active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-0002-0002-0002-000000000002",
+      "name": "Fetch New Candidates from Index",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "crm_access_token"
+      },
+      "id": "b1b2c3d4-0003-0003-0003-000000000003",
+      "name": "Get CRM Token",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [460, 480],
+      "credentials": {
+        "redis": {
+          "id": "1",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const candidates = $input.first().json.candidates || [];\nconst token = $('Get CRM Token').first().json;\n\nconst mapped = candidates.map(c => ({\n  team_id: $env.CRM_TEAM_ID,\n  first_name: c.firstName || c.first_name,\n  last_name: c.lastName || c.last_name,\n  email: c.email,\n  phone: c.phone || c.mobile,\n  plz: c.postalCode || c.zipCode || c.plz,\n  skills: Array.isArray(c.skills) ? c.skills : (c.skills || '').split(',').map(s => s.trim()).filter(Boolean),\n  seniority: (c.experience_level || c.seniority || 'MID').toUpperCase(),\n  languages: Array.isArray(c.languages) ? c.languages : (c.languages || 'Deutsch,Englisch').split(',').map(l => l.trim()),\n  salary_expectation: parseInt(c.salary_expectation || c.desired_salary || 0) || null,\n  availability_date: c.available_from || c.availability_date || null,\n  notes: `Imported from Index Platform at ${new Date().toISOString()}\\nOriginal ID: ${c.id}`,\n  token: token\n}));\n\nreturn mapped.map(item => ({json: item}));"
+      },
+      "id": "b1b2c3d4-0004-0004-0004-000000000004",
+      "name": "Transform to CRM Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/candidates",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"team_id\": \"{{$json.team_id}}\", \"first_name\": \"{{$json.first_name}}\", \"last_name\": \"{{$json.last_name}}\", \"email\": \"{{$json.email}}\", \"phone\": \"{{$json.phone}}\", \"plz\": \"{{$json.plz}}\", \"skills\": {{JSON.stringify($json.skills)}}, \"seniority\": \"{{$json.seniority}}\", \"languages\": {{JSON.stringify($json.languages)}}, \"salary_expectation\": {{$json.salary_expectation}}, \"availability_date\": \"{{$json.availability_date}}\", \"notes\": \"{{$json.notes}}\"}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 1000
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            }
+          ]
+        }
+      },
+      "id": "b1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Create Candidate in CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "email",
+              "field2": "email"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Merge Token with Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [680, 390]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.status}}",
+              "value2": 201,
+              "operation": "equal"
+            }
+          ]
+        }
+      },
+      "id": "b1b2c3d4-0007-0007-0007-000000000007",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const successful = $input.all().filter(i => i.json.status === 201).length;\nconst failed = $input.all().filter(i => i.json.status !== 201).length;\nconst total = $input.all().length;\n\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    total_candidates: total,\n    imported: successful,\n    failed: failed,\n    success_rate: total > 0 ? ((successful / total) * 100).toFixed(2) + '%' : '0%'\n  }\n}];"
+      },
+      "id": "b1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Generate Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GOOGLE_SHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ImportLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{$json.timestamp}}",
+            "Total": "={{$json.total_candidates}}",
+            "Imported": "={{$json.imported}}",
+            "Failed": "={{$json.failed}}",
+            "Success Rate": "={{$json.success_rate}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1560, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 2 hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch New Candidates from Index",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get CRM Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch New Candidates from Index": {
+      "main": [
+        [
+          {
+            "node": "Transform to CRM Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform to CRM Format": {
+      "main": [
+        [
+          {
+            "node": "Merge Token with Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CRM Token": {
+      "main": [
+        [
+          {
+            "node": "Merge Token with Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Token with Data": {
+      "main": [
+        [
+          {
+            "node": "Create Candidate in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Candidate in CRM": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Summary": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "CRM",
+      "id": "crm-import"
+    },
+    {
+      "name": "Index",
+      "id": "index-platform"
+    }
+  ],
+  "meta": {
+    "instanceId": "crm-recruiting-ats"
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+}

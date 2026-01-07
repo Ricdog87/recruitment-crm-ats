@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crm-ats-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://recruiting-sg.com/api}
+    networks:
+      - root_traefik
+    labels:
+      # Enable Traefik for this service
+      - "traefik.enable=true"
+
+      # HTTP Router - Redirect to HTTPS
+      - "traefik.http.routers.crm-frontend-http.rule=Host(`recruiting-sg.com`)"
+      - "traefik.http.routers.crm-frontend-http.entrypoints=web"
+      - "traefik.http.routers.crm-frontend-http.middlewares=redirect-to-https@docker"
+
+      # HTTPS Router
+      - "traefik.http.routers.crm-frontend.rule=Host(`recruiting-sg.com`)"
+      - "traefik.http.routers.crm-frontend.entrypoints=websecure"
+      - "traefik.http.routers.crm-frontend.tls=true"
+      - "traefik.http.routers.crm-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.crm-frontend.priority=1"
+
+      # Service configuration
+      - "traefik.http.services.crm-frontend.loadbalancer.server.port=3001"
+
+      # Security headers
+      - "traefik.http.middlewares.crm-frontend-security.headers.customResponseHeaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.crm-frontend-security.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.crm-frontend-security.headers.stsSeconds=63072000"
+
+      # Apply middlewares
+      - "traefik.http.routers.crm-frontend.middlewares=crm-frontend-security@docker"
+
+      # Network for Traefik
+      - "traefik.docker.network=root_traefik"
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  root_traefik:
+    external: true

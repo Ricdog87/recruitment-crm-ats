@@ -1,0 +1,402 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum Role {
+  ADMIN
+  MANAGER
+  RECRUITER
+  VIEWER
+}
+
+enum WorkModel {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+enum Seniority {
+  JUNIOR
+  MID
+  SENIOR
+  LEAD
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ON_HOLD
+  FILLED
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  IDENTIFIED
+  QUALIFIED
+  SUBMITTED
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum ActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+}
+
+enum ConsentType {
+  DATA_PROCESSING
+  MARKETING
+  THIRD_PARTY_SHARING
+}
+
+enum ParsingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// ============================================================================
+// CORE ENTITIES
+// ============================================================================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password_hash String
+  first_name    String
+  last_name     String
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  team_memberships TeamMember[]
+  activities       Activity[]
+  documents        Document[]
+  audit_logs       AuditLog[]
+
+  @@map("users")
+}
+
+model Team {
+  id         String   @id @default(cuid())
+  name       String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  members      TeamMember[]
+  companies    Company[]
+  contacts     Contact[]
+  projects     Project[]
+  candidates   Candidate[]
+  submissions  Submission[]
+  activities   Activity[]
+  documents    Document[]
+  audit_logs   AuditLog[]
+  workflows    Workflow[]
+  workflow_logs WorkflowLog[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id         String   @id @default(cuid())
+  team_id    String
+  user_id    String
+  role       Role
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+  @@map("team_members")
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  team_id     String
+  name        String
+  website     String?
+  industry    String?
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  team     Team      @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  contacts Contact[]
+
+  @@index([team_id])
+  @@map("companies")
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  team_id     String
+  company_id  String?
+  first_name  String
+  last_name   String
+  email       String?
+  phone       String?
+  position    String?
+  notes       String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  team       Team       @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  company    Company?   @relation(fields: [company_id], references: [id], onDelete: SetNull)
+  activities Activity[]
+
+  @@index([team_id])
+  @@index([company_id])
+  @@map("contacts")
+}
+
+model Project {
+  id                   String        @id @default(cuid())
+  team_id              String
+  title                String
+  status               ProjectStatus @default(DRAFT)
+  company_name         String?
+  plz                  String?
+  radius_km            Int?
+  work_model           WorkModel     @default(HYBRID)
+  salary_min           Int?
+  salary_max           Int?
+  must_have_skills     String[]      @default([])
+  nice_to_have_skills  String[]      @default([])
+  required_languages   String[]      @default([])
+  required_seniority   Seniority?
+  description          String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+
+  team        Team         @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  submissions Submission[]
+  activities  Activity[]
+  documents   Document[]
+
+  @@index([team_id])
+  @@index([status])
+  @@map("projects")
+}
+
+model Candidate {
+  id                  String         @id @default(cuid())
+  team_id             String
+  first_name          String
+  last_name           String
+  email               String
+  phone               String?
+  plz                 String?
+  skills              String[]       @default([])
+  seniority           Seniority?
+  languages           String[]       @default([])
+  salary_expectation  Int?
+  availability_date   DateTime?
+  notes               String?
+  cv_parsing_status   ParsingStatus? @default(PENDING)
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
+
+  team            Team            @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  submissions     Submission[]
+  activities      Activity[]
+  documents       Document[]
+  consent_records ConsentRecord[]
+
+  @@unique([team_id, email])
+  @@index([team_id])
+  @@map("candidates")
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  team_id      String
+  candidate_id String
+  project_id   String
+  status       SubmissionStatus @default(IDENTIFIED)
+  notes        String?
+  submitted_at DateTime?
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+
+  team       Team       @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  candidate  Candidate  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  project    Project    @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  activities Activity[]
+
+  @@unique([candidate_id, project_id])
+  @@index([team_id])
+  @@index([project_id])
+  @@index([candidate_id])
+  @@map("submissions")
+}
+
+model Activity {
+  id            String       @id @default(cuid())
+  team_id       String
+  user_id       String
+  type          ActivityType
+  subject       String
+  body          String?
+  contact_id    String?
+  project_id    String?
+  candidate_id  String?
+  submission_id String?
+  created_at    DateTime     @default(now())
+  updated_at    DateTime     @updatedAt
+
+  team       Team        @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  contact    Contact?    @relation(fields: [contact_id], references: [id], onDelete: SetNull)
+  project    Project?    @relation(fields: [project_id], references: [id], onDelete: SetNull)
+  candidate  Candidate?  @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
+  submission Submission? @relation(fields: [submission_id], references: [id], onDelete: SetNull)
+
+  @@index([team_id])
+  @@index([user_id])
+  @@map("activities")
+}
+
+model Document {
+  id           String   @id @default(cuid())
+  team_id      String
+  user_id      String
+  file_name    String
+  mime_type    String
+  storage_path String
+  file_size    Int
+  candidate_id String?
+  project_id   String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  team      Team       @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  candidate Candidate? @relation(fields: [candidate_id], references: [id], onDelete: SetNull)
+  project   Project?   @relation(fields: [project_id], references: [id], onDelete: SetNull)
+
+  @@index([team_id])
+  @@index([candidate_id])
+  @@index([project_id])
+  @@map("documents")
+}
+
+model ConsentRecord {
+  id           String       @id @default(cuid())
+  candidate_id String
+  consent_type ConsentType
+  granted_at   DateTime
+  revoked_at   DateTime?
+  source       String
+  notes        String?
+  created_at   DateTime     @default(now())
+  updated_at   DateTime     @updatedAt
+
+  candidate Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+  @@index([candidate_id])
+  @@map("consent_records")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  team_id     String
+  user_id     String
+  entity_type String
+  entity_id   String
+  action      String
+  before_json Json?
+  after_json  Json?
+  created_at  DateTime @default(now())
+
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([team_id])
+  @@index([user_id])
+  @@index([entity_type, entity_id])
+  @@map("audit_logs")
+}
+
+model PlzGeodata {
+  plz       String  @id
+  city      String
+  latitude  Decimal @db.Decimal(10, 8)
+  longitude Decimal @db.Decimal(11, 8)
+
+  @@map("plz_geodata")
+}
+
+// ============================================================================
+// WORKFLOW AUTOMATION
+// ============================================================================
+
+enum WorkflowTriggerType {
+  SUBMISSION_STATUS_CHANGED
+  CANDIDATE_CREATED
+  PROJECT_STATUS_CHANGED
+  DOCUMENT_UPLOADED
+}
+
+enum WorkflowActionType {
+  SEND_EMAIL
+  CREATE_ACTIVITY
+  UPDATE_FIELD
+  WEBHOOK
+}
+
+model Workflow {
+  id          String   @id @default(cuid())
+  team_id     String
+  name        String
+  description String?
+  is_active   Boolean  @default(true)
+  trigger_type WorkflowTriggerType
+  trigger_config Json?   // Conditions for when to trigger
+  actions     Json      // Array of actions to perform
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  logs WorkflowLog[]
+
+  @@index([team_id])
+  @@index([trigger_type])
+  @@map("workflows")
+}
+
+model WorkflowLog {
+  id          String   @id @default(cuid())
+  workflow_id String
+  team_id     String
+  triggered_by String  // Event that triggered the workflow
+  success     Boolean
+  error_message String?
+  executed_at DateTime @default(now())
+
+  workflow Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+  team     Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
+
+  @@index([workflow_id])
+  @@index([team_id])
+  @@map("workflow_logs")
+}
