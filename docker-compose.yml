@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: recruitment_crm_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: recruitment
+      POSTGRES_PASSWORD: recruitment123
+      POSTGRES_DB: recruitment_crm
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - recruitment_network
+
+  # Optional: PgAdmin für DB-Management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: recruitment_crm_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@recruitment.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - recruitment_network
+
+volumes:
+  postgres_data:
+
+networks:
+  recruitment_network:
+    driver: bridge

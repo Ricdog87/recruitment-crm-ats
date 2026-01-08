@@ -1,0 +1,347 @@
+// Prisma Schema für Recruitment CRM/ATS
+// Multi-User, Multi-Source Integration mit Smart Matching
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ Kandidaten ============
+model Candidate {
+  id                String              @id @default(uuid())
+  externalId        String?             @unique // LinkedIn/StepStone/Indeed ID
+  source            CandidateSource     @default(MANUAL)
+
+  // Persönliche Daten
+  firstName         String
+  lastName          String
+  email             String?             @unique
+  phone             String?
+  location          String?
+
+  // Profil
+  title             String?             // Aktueller Job-Titel
+  summary           String?             @db.Text
+  experienceYears   Int?
+  currentCompany    String?
+  currentSalary     Decimal?            @db.Decimal(10, 2)
+  desiredSalary     Decimal?            @db.Decimal(10, 2)
+
+  // Verfügbarkeit & Wechselwilligkeit
+  availableFrom     DateTime?
+  noticePeriod      Int?                // Kündigungsfrist in Wochen
+  changeReadiness   ChangeReadiness?
+
+  // Tracking
+  linkedinUrl       String?
+  lastActivity      DateTime?           // Letzte LinkedIn/Profil-Aktivität
+  profileUpdatedAt  DateTime?           // Letztes Profil-Update
+  lastContactedAt   DateTime?
+
+  // Relationen
+  skills            CandidateSkill[]
+  matches           Match[]
+  activities        Activity[]
+  notes             Note[]
+
+  // Metadaten
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  createdBy         String?             // User ID
+  isActive          Boolean             @default(true)
+
+  @@index([source])
+  @@index([email])
+  @@index([lastActivity])
+}
+
+// Wechselwilligkeit-Score und Indikatoren
+model ChangeReadiness {
+  id                    String    @id @default(uuid())
+  candidateId           String    @unique
+  candidate             Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  // Score (0-100)
+  overallScore          Int       @default(0)
+
+  // Indikatoren
+  linkedinActivityScore Int       @default(0) // LinkedIn-Aktivität
+  profileUpdateScore    Int       @default(0) // Profil wurde kürzlich aktualisiert
+  jobSearchSignals      Int       @default(0) // "Open to Work", Profil-Optimierung
+  responseRate          Int       @default(0) // Reaktion auf Kontaktversuche
+
+  // Signale
+  openToWork            Boolean   @default(false)
+  activeJobSeeker       Boolean   @default(false)
+  recentProfileChanges  Boolean   @default(false)
+
+  // Kontext
+  lastCalculatedAt      DateTime  @default(now())
+  indicators            Json?     // Zusätzliche Indikatoren als JSON
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([overallScore])
+  @@index([openToWork])
+}
+
+// ============ Stellen ============
+model Job {
+  id                String        @id @default(uuid())
+  externalId        String?       @unique // HR4you/advertsdata ID
+  source            JobSource     @default(MANUAL)
+
+  // Job-Details
+  title             String
+  company           String
+  location          String?
+  description       String        @db.Text
+  requirements      String?       @db.Text
+
+  // Vergütung
+  salaryMin         Decimal?      @db.Decimal(10, 2)
+  salaryMax         Decimal?      @db.Decimal(10, 2)
+
+  // Status
+  status            JobStatus     @default(OPEN)
+  priority          Priority      @default(MEDIUM)
+  deadline          DateTime?
+
+  // Relationen
+  requiredSkills    JobSkill[]
+  matches           Match[]
+  activities        Activity[]
+  notes             Note[]
+
+  // Metadaten
+  publishedAt       DateTime?
+  scrapedAt         DateTime?     // Wann wurde die Stelle gescraped
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  createdBy         String?       // User ID
+
+  @@index([source])
+  @@index([status])
+  @@index([company])
+}
+
+// ============ Skills ============
+model Skill {
+  id                String          @id @default(uuid())
+  name              String          @unique
+  category          SkillCategory?
+
+  // Relationen
+  candidates        CandidateSkill[]
+  jobs              JobSkill[]
+
+  createdAt         DateTime        @default(now())
+
+  @@index([category])
+}
+
+// Join-Table: Kandidaten <-> Skills
+model CandidateSkill {
+  id              String    @id @default(uuid())
+  candidateId     String
+  skillId         String
+
+  candidate       Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  skill           Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  level           SkillLevel @default(INTERMEDIATE)
+  yearsOfExp      Int?
+  verified        Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+
+  @@unique([candidateId, skillId])
+  @@index([candidateId])
+  @@index([skillId])
+}
+
+// Join-Table: Jobs <-> Skills
+model JobSkill {
+  id              String    @id @default(uuid())
+  jobId           String
+  skillId         String
+
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  skill           Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  required        Boolean   @default(true)  // Required vs. Nice-to-have
+  importance      Priority  @default(MEDIUM)
+  minYearsOfExp   Int?
+
+  createdAt       DateTime  @default(now())
+
+  @@unique([jobId, skillId])
+  @@index([jobId])
+  @@index([skillId])
+}
+
+// ============ Matching ============
+model Match {
+  id                    String    @id @default(uuid())
+  candidateId           String
+  jobId                 String
+
+  candidate             Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job                   Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Scores (0-100)
+  overallScore          Int       @default(0)
+  skillsScore           Int       @default(0)
+  experienceScore       Int       @default(0)
+  locationScore         Int       @default(0)
+  salaryScore           Int       @default(0)
+  changeReadinessScore  Int       @default(0) // WICHTIG: Wechselwilligkeit!
+
+  // Details
+  matchingSkills        Json?     // Welche Skills matchen
+  missingSkills         Json?     // Welche Skills fehlen
+
+  // Status
+  status                MatchStatus @default(NEW)
+  contactedAt           DateTime?
+  responseReceived      Boolean   @default(false)
+
+  // Metadaten
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([candidateId, jobId])
+  @@index([overallScore])
+  @@index([changeReadinessScore])
+  @@index([status])
+}
+
+// ============ Aktivitäten & Notes ============
+model Activity {
+  id              String        @id @default(uuid())
+  type            ActivityType
+  description     String?       @db.Text
+
+  // Relationen (optional - entweder Kandidat oder Job)
+  candidateId     String?
+  jobId           String?
+  candidate       Candidate?    @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job             Job?          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  metadata        Json?         // Zusätzliche Daten
+
+  createdAt       DateTime      @default(now())
+  createdBy       String?       // User ID
+
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([type])
+}
+
+model Note {
+  id              String    @id @default(uuid())
+  content         String    @db.Text
+
+  // Relationen
+  candidateId     String?
+  jobId           String?
+  candidate       Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job             Job?       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?   // User ID
+
+  @@index([candidateId])
+  @@index([jobId])
+}
+
+// ============ Enums ============
+enum CandidateSource {
+  MANUAL
+  LINKEDIN
+  STEPSTONE
+  INDEED
+  HR4YOU
+  XING
+  OTHER
+}
+
+enum JobSource {
+  MANUAL
+  HR4YOU
+  ADVERTSDATA
+  LINKEDIN
+  STEPSTONE
+  INDEED
+  OTHER
+}
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  FILLED
+  CANCELLED
+  ON_HOLD
+}
+
+enum MatchStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  NOT_INTERESTED
+  INTERVIEW_SCHEDULED
+  REJECTED
+  HIRED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum SkillCategory {
+  PROGRAMMING
+  FRAMEWORK
+  DATABASE
+  CLOUD
+  DEVOPS
+  SOFT_SKILL
+  LANGUAGE
+  TOOL
+  METHODOLOGY
+  CERTIFICATION
+  OTHER
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  CONTACTED
+  EMAIL_SENT
+  CALL_MADE
+  MEETING_SCHEDULED
+  NOTE_ADDED
+  STATUS_CHANGED
+  PROFILE_VIEWED
+  APPLICATION_RECEIVED
+  INTERVIEW_SCHEDULED
+  OFFER_MADE
+  HIRED
+  REJECTED
+}

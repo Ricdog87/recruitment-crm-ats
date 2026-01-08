@@ -1,0 +1,137 @@
+{
+  "name": "Recruitment: Neuer Kandidat → Auto-Matching",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "new-candidate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook: Neuer Kandidat",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/webhooks/n8n/candidate/new",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "firstName",
+              "value": "={{$json[\"firstName\"]}}"
+            },
+            {
+              "name": "lastName",
+              "value": "={{$json[\"lastName\"]}}"
+            },
+            {
+              "name": "email",
+              "value": "={{$json[\"email\"]}}"
+            },
+            {
+              "name": "skills",
+              "value": "={{$json[\"skills\"]}}"
+            },
+            {
+              "name": "source",
+              "value": "LINKEDIN"
+            }
+          ]
+        }
+      },
+      "name": "API: Kandidat erstellen & matchen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"changeReadiness\"][\"overallScore\"]}}",
+              "operation": "largerEqual",
+              "value2": 70
+            }
+          ]
+        }
+      },
+      "name": "Wechselbereit? (>= 70%)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "subject": "🔥 Neuer wechselbereiter Kandidat!",
+        "emailType": "html",
+        "message": "=<h2>Neuer Kandidat im System</h2>\n<p><strong>Name:</strong> {{$json[\"candidate\"][\"firstName\"]}} {{$json[\"candidate\"][\"lastName\"]}}</p>\n<p><strong>Wechselwilligkeit:</strong> {{$json[\"changeReadiness\"][\"overallScore\"]}}%</p>\n<p><strong>Matches gefunden:</strong> {{$json[\"matchesFound\"]}}</p>\n\n<h3>Top Matches:</h3>\n<ul>\n{{$json[\"matches\"].slice(0,5).map(m => `<li>${m.job.title} @ ${m.job.company} (Score: ${m.overallScore}%)</li>`).join('')}}\n</ul>",
+        "options": {}
+      },
+      "name": "Email: Recruiter benachrichtigen",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Kandidat erfasst. Wechselwilligkeit: {{$json[\"changeReadiness\"][\"overallScore\"]}}%"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Neuer Kandidat": {
+      "main": [
+        [
+          {
+            "node": "API: Kandidat erstellen & matchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: Kandidat erstellen & matchen": {
+      "main": [
+        [
+          {
+            "node": "Wechselbereit? (>= 70%)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wechselbereit? (>= 70%)": {
+      "main": [
+        [
+          {
+            "node": "Email: Recruiter benachrichtigen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
